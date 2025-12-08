@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Model caches & checkpoints
+.cache/
+models/
+checkpoints/
+*.ckpt
+*.safetensors
+*.bin
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Audio files (optional)
+*.wav
+*.mp3
+*.flac
+*.ogg
+
+# Exclude CSM hidden2text as requested
+csm/csm_hidden2text/
+
+# Outputs
+outputs/
+output/
+
+# Hugging Face cache
+.huggingface/

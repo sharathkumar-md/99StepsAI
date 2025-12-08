@@ -1,0 +1,23 @@
+# Core Dependencies
+openai-whisper
+torch
+torchaudio
+soundfile
+numpy
+python-dotenv
+
+# LLM (llama3.2)
+ollama
+
+# CSM Dependencies
+transformers
+accelerate
+sentencepiece
+protobuf
+huggingface-hub
+
+# Audio Capture (for live input)
+sounddevice
+
+# Optional utilities
+tqdm
