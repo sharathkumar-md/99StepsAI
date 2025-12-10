@@ -160,6 +160,13 @@ class ConversationalChatbot:
         logger.info(f"📝 WHISPER OUTPUT: '{whisper_output}'")
         logger.info("="*60)
 
+        # If Whisper returns empty, CSM audio might be silent - use original LLM response
+        if not whisper_output:
+            logger.warning("⚠️  Whisper returned empty transcription!")
+            logger.warning("CSM audio may be silent or corrupted.")
+            logger.warning("Falling back to original LLM response.")
+            whisper_output = llm_response
+
         # Cleanup temp CSM audio
         try:
             os.unlink(csm_audio_path)
