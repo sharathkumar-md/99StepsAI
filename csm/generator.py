@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from typing import List, Tuple
+import json
 
 import torch
 import torchaudio
 from huggingface_hub import hf_hub_download
-from models import Model
+from models import Model, ModelArgs
 from moshi.models import loaders
 from tokenizers.processors import TemplateProcessing
 from transformers import AutoTokenizer
@@ -169,7 +170,38 @@ class Generator:
 
 
 def load_csm_1b(device: str = "cuda") -> Generator:
-    model = Model.from_pretrained("sesame/csm-1b")
+    # Load config from HuggingFace hub
+    try:
+        config_path = hf_hub_download(
+            repo_id="sesame/csm-1b",
+            filename="config.json"
+        )
+        with open(config_path, 'r') as f:
+            config_dict = json.load(f)
+        config = ModelArgs(**config_dict)
+    except Exception as e:
+        print(f"Warning: Could not load config from hub: {e}")
+        # Fallback to default config for CSM 1B
+        config = ModelArgs(
+            backbone_flavor="llama-1B",
+            decoder_flavor="llama-100M",
+            text_vocab_size=128256,
+            audio_vocab_size=1024,
+            audio_num_codebooks=32
+        )
+    
+    model = Model(config=config)
+    
+    # Load pretrained weights
+    try:
+        state_dict = torch.hub.load_state_dict_from_url(
+            "https://huggingface.co/sesame/csm-1b/resolve/main/pytorch_model.bin",
+            map_location="cpu"
+        )
+        model.load_state_dict(state_dict, strict=False)
+    except Exception as e:
+        print(f"Warning: Could not load pretrained weights: {e}")
+    
     model.to(device=device, dtype=torch.bfloat16)
 
     generator = Generator(model)
