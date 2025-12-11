@@ -178,7 +178,17 @@ def load_csm_1b(device: str = "cuda") -> Generator:
         )
         with open(config_path, 'r') as f:
             config_dict = json.load(f)
-        config = ModelArgs(**config_dict)
+        
+        # Filter to only include fields that ModelArgs expects
+        expected_fields = {
+            'backbone_flavor',
+            'decoder_flavor', 
+            'text_vocab_size',
+            'audio_vocab_size',
+            'audio_num_codebooks'
+        }
+        filtered_config = {k: v for k, v in config_dict.items() if k in expected_fields}
+        config = ModelArgs(**filtered_config)
     except Exception as e:
         print(f"Warning: Could not load config from hub: {e}")
         # Fallback to default config for CSM 1B
