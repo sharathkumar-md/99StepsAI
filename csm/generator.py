@@ -202,13 +202,15 @@ def load_csm_1b(device: str = "cuda") -> Generator:
     
     model = Model(config=config)
     
-    # Load pretrained weights
+    # Load pretrained weights using HuggingFace hub (respects authentication)
     try:
-        state_dict = torch.hub.load_state_dict_from_url(
-            "https://huggingface.co/sesame/csm-1b/resolve/main/pytorch_model.bin",
-            map_location="cpu"
+        weights_path = hf_hub_download(
+            repo_id="sesame/csm-1b",
+            filename="pytorch_model.bin"
         )
+        state_dict = torch.load(weights_path, map_location="cpu")
         model.load_state_dict(state_dict, strict=False)
+        print(f"Loaded pretrained weights from {weights_path}")
     except Exception as e:
         print(f"Warning: Could not load pretrained weights: {e}")
     
