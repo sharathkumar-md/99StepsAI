@@ -96,11 +96,13 @@ class ConversationLLM:
             logger.info(f"Connected to Ollama at {self.ollama_host}")
             logger.info(f"Using LLM model: {self.llm_model}")
 
-            # Check if model exists
+            # Check if model exists (llama3.2 might be listed as llama3.2:latest)
             if 'models' in models and isinstance(models['models'], list):
-                available_models = [m.get('name', '') for m in models['models']]
-                if not any(self.llm_model in m for m in available_models):
+                available_models = [m.get('name', '').replace(':latest', '') for m in models['models']]
+                model_found = any(self.llm_model in m or m in self.llm_model for m in available_models)
+                if not model_found:
                     logger.warning(f"Model {self.llm_model} not found locally")
+                    logger.warning(f"Available models: {', '.join(available_models)}")
             else:
                 logger.warning("Could not retrieve model list")
         except Exception as e:
