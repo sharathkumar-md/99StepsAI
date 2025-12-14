@@ -3,8 +3,10 @@ openai-whisper
 torch
 torchaudio
 soundfile
-numpy
+numpy<2
 python-dotenv
+triton
+bitsandbytes
 
 # LLM (llama3.2)
 ollama
