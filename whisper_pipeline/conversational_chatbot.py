@@ -124,31 +124,36 @@ class ConversationalChatbot:
             raise ValueError(f"Invalid input_type: {input_type}")
 
         # Step 2: LLM generates conversational response
-        logger.info("\n[STEP 1/4] LLM Response Generation (llama3.2)")
-        logger.info("-"*60)
-        logger.info("Generating conversational response...")
+        # logger.info("\n[STEP 1/4] LLM Response Generation (llama3.2)")
+        # logger.info("-"*60)
+        # logger.info("Generating conversational response...")
+        print("\n[1/4] Generating response...")
 
         llm_response = self.llm.generate_response(user_text)
 
-        logger.info("="*60)
-        logger.info(f"💬 LLM RESPONSE: '{llm_response}'")
-        logger.info("="*60)
+        # logger.info("="*60)
+        # logger.info(f"💬 LLM RESPONSE: '{llm_response}'")
+        # logger.info("="*60)
+        print(f"💬 LLM: {llm_response}")
 
         # Step 3: CSM converts response to natural audio
-        logger.info("\n[STEP 2/4] CSM Audio Generation")
-        logger.info("-"*60)
-        logger.info("Converting LLM response to conversational audio...")
+        # logger.info("\n[STEP 2/4] CSM Audio Generation")
+        # logger.info("-"*60)
+        # logger.info("Converting LLM response to conversational audio...")
+        print("\n[2/4] Converting to audio...")
 
         csm_audio_path = self.csm.text_to_audio(
             text=llm_response,
             output_path=None  # Use temp file
         )
-        logger.info(f"✓ CSM audio: {csm_audio_path}")
+        # logger.info(f"✓ CSM audio: {csm_audio_path}")
+        print("✓ Audio generated")
 
         # Step 4: Whisper transcribes CSM audio
-        logger.info("\n[STEP 3/4] Whisper Transcription")
-        logger.info("-"*60)
-        logger.info("Transcribing CSM audio...")
+        # logger.info("\n[STEP 3/4] Whisper Transcription")
+        # logger.info("-"*60)
+        # logger.info("Transcribing CSM audio...")
+        print("\n[3/4] Transcribing audio...")
 
         transcription = self.whisper.transcribe(
             csm_audio_path,
@@ -156,9 +161,10 @@ class ConversationalChatbot:
         )
         whisper_output = transcription["text"].strip()
 
-        logger.info("="*60)
-        logger.info(f"📝 WHISPER OUTPUT: '{whisper_output}'")
-        logger.info("="*60)
+        # logger.info("="*60)
+        # logger.info(f"📝 WHISPER OUTPUT: '{whisper_output}'")
+        # logger.info("="*60)
+        print(f"📝 Whisper: {whisper_output}")
 
         # If Whisper returns empty, CSM audio might be silent - use original LLM response
         if not whisper_output:
@@ -174,17 +180,19 @@ class ConversationalChatbot:
             pass
 
         # Step 5: LLM cleans Whisper transcription
-        logger.info("\n[STEP 4/4] LLM Text Cleanup (llama3.2)")
-        logger.info("-"*60)
-        logger.info("Cleaning Whisper transcription...")
+        # logger.info("\n[STEP 4/4] LLM Text Cleanup (llama3.2)")
+        # logger.info("-"*60)
+        # logger.info("Cleaning Whisper transcription...")
+        print("\n[4/4] Cleaning up text...")
 
         final_response = self.llm.cleanup_text(whisper_output)
 
-        logger.info("="*60)
-        logger.info("✓ FINAL RESPONSE READY")
-        logger.info("="*60)
-        logger.info(f"🎯 CLEAN OUTPUT: '{final_response}'")
-        logger.info("="*60)
+        # logger.info("="*60)
+        # logger.info("✓ FINAL RESPONSE READY")
+        # logger.info("="*60)
+        # logger.info(f"🎯 CLEAN OUTPUT: '{final_response}'")
+        # logger.info("="*60)
+        print(f"🎯 Final: {final_response}")
 
         return final_response
 
@@ -271,6 +279,7 @@ def main():
                 response = chatbot.chat(user_input)
                 #logger.info(f"\n🤖 Bot: {response}")
                 print(f"\n🤖 Bot: {response}\n")
+                
 
             except KeyboardInterrupt:
                 logger.info("\n\nGoodbye!")
