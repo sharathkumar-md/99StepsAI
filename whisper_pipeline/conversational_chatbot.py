@@ -269,7 +269,8 @@ def main():
             # Get response
             try:
                 response = chatbot.chat(user_input)
-                logger.info(f"\n🤖 Bot: {response}")
+                #logger.info(f"\n🤖 Bot: {response}")
+                print(f"\n🤖 Bot: {response}\n")
 
             except KeyboardInterrupt:
                 logger.info("\n\nGoodbye!")
