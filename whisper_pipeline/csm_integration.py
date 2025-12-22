@@ -4,16 +4,34 @@ Handles text-to-speech conversion using CSM (Conversational Speech Model)
 OPTIMIZED FOR GPU (SageMaker g5.xlarge A10G)
 """
 
-# Suppress ALL warnings BEFORE any imports
+import logging
+import sys
 import os
-os.environ["NO_TORCH_COMPILE"] = "1"
-os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
+# Configure logging FIRST (before any other imports)
+os.makedirs('logs', exist_ok=True)
+
+logging.basicConfig(
+    level=logging.DEBUG,  # 🔥 Changed to DEBUG for detailed diagnostics
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler('logs/chatbot.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout),
+    ],
+    force=True   # REQUIRED
+)
+
+logger = logging.getLogger(__name__)
+logger.info(" CSM LOGGING INITIALIZED ")
+
+# Suppress warnings and set environment variables
 import warnings
 warnings.filterwarnings('ignore')
 
-import sys
-import logging
+os.environ["NO_TORCH_COMPILE"] = "1"
+os.environ["TORCHDYNAMO_DISABLE"] = "1"
+
 import time
 import torch
 import torchaudio
@@ -24,19 +42,6 @@ import tempfile
 sys.path.insert(0, str(Path(__file__).parent.parent / 'csm'))
 
 from generator import load_csm_1b, Segment
-
-# Configure logging
-os.makedirs('logs', exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.FileHandler('logs/chatbot.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
 
 
 class CSMConverter:
@@ -142,10 +147,57 @@ class CSMConverter:
                     logger.error("❌ CRITICAL: Model not on GPU! Less than 0.5GB allocated!")
                     logger.error("The CSM generator.py load_csm_1b() function may have a bug")
                     logger.error(f"Model thinks it's on: {model_device}")
-                    logger.error("CSM will run VERY slowly on CPU")
+                    logger.error("Attempting to force model to GPU...")
+                    
+                    # 🔥 WORKAROUND: Explicitly force everything to GPU
+                    try:
+                        logger.info("Forcing _model to cuda...")
+                        self.generator._model = self.generator._model.to('cuda', dtype=torch.bfloat16)
+                        
+                        logger.info("Forcing _audio_tokenizer (vocoder) to cuda...")
+                        if hasattr(self.generator, '_audio_tokenizer'):
+                            self.generator._audio_tokenizer = self.generator._audio_tokenizer.to('cuda')
+                        
+                        logger.info("Forcing _watermarker to cuda...")
+                        if hasattr(self.generator, '_watermarker') and self.generator._watermarker is not None:
+                            self.generator._watermarker = self.generator._watermarker.to('cuda')
+                        
+                        # Update device
+                        self.generator.device = torch.device('cuda')
+                        
+                        # Verify again
+                        torch.cuda.synchronize()
+                        allocated_after = torch.cuda.memory_allocated(0) / 1e9
+                        logger.info(f"After forcing: GPU Memory = {allocated_after:.2f}GB")
+                        
+                        if allocated_after > 2.0:
+                            logger.info("✅ Successfully forced model to GPU!")
+                        else:
+                            logger.error("❌ Force failed - still not on GPU")
+                            logger.error("CSM will run VERY slowly on CPU")
+                    except Exception as e:
+                        logger.error(f"Failed to force GPU: {e}")
+                        logger.error("CSM will run VERY slowly on CPU")
+                        
                 elif str(model_device) == "cpu":
                     logger.error(f"❌ CRITICAL: Model is on CPU despite device={device}!")
                     logger.error("There's a bug in load_csm_1b() - it's not respecting device parameter")
+                    logger.error("Attempting workaround...")
+                    
+                    # Same workaround as above
+                    try:
+                        logger.info("Forcing model components to cuda...")
+                        self.generator._model = self.generator._model.to('cuda', dtype=torch.bfloat16)
+                        if hasattr(self.generator, '_audio_tokenizer'):
+                            self.generator._audio_tokenizer = self.generator._audio_tokenizer.to('cuda')
+                        if hasattr(self.generator, '_watermarker') and self.generator._watermarker is not None:
+                            self.generator._watermarker = self.generator._watermarker.to('cuda')
+                        self.generator.device = torch.device('cuda')
+                        torch.cuda.synchronize()
+                        allocated_after = torch.cuda.memory_allocated(0) / 1e9
+                        logger.info(f"✅ Forced to GPU: {allocated_after:.2f}GB")
+                    except Exception as e:
+                        logger.error(f"Workaround failed: {e}")
                 else:
                     logger.info(f"✅ Model successfully on GPU ({allocated:.2f}GB)")
             
