@@ -100,23 +100,62 @@ class CSMConverter:
 
         # Load CSM model with optimizations
         try:
-            logger.info("Loading CSM model (fixie-ai/ultravox or similar)...")
+            logger.info("Loading CSM model (sesame/csm-1b)...")
+            logger.info(f"Target device: {device}")
+            logger.info(f"CUDA available: {torch.cuda.is_available()}")
+            logger.info(f"PyTorch version: {torch.__version__}")
+            logger.info(f"CUDA version: {torch.version.cuda if torch.cuda.is_available() else 'N/A'}")
+            
             load_start = time.time()
             
+            # 🔥 CRITICAL: Load generator - it should handle device internally
             self.generator = load_csm_1b(device=device)
             self.sample_rate = self.generator.sample_rate
             
-            load_time = time.time() - load_start
-            logger.info(f"✓ CSM loaded in {load_time:.2f}s (sample rate: {self.sample_rate}Hz)")
-            
-            # Check GPU memory after loading
+            # 🔥 Verify the model is actually on GPU
             if device == "cuda":
+                logger.info("Verifying GPU placement...")
+                
+                # Check model device
+                model_device = next(self.generator._model.parameters()).device
+                logger.info(f"Model device: {model_device}")
+                
+                # Check model dtype
+                model_dtype = next(self.generator._model.parameters()).dtype
+                logger.info(f"Model dtype: {model_dtype}")
+                
+                # Check vocoder device
+                if hasattr(self.generator, '_audio_tokenizer'):
+                    vocoder_params = list(self.generator._audio_tokenizer.parameters())
+                    if vocoder_params:
+                        vocoder_device = vocoder_params[0].device
+                        logger.info(f"Vocoder device: {vocoder_device}")
+                
+                # Force synchronization and check memory
+                torch.cuda.synchronize()
                 allocated = torch.cuda.memory_allocated(0) / 1e9
                 reserved = torch.cuda.memory_reserved(0) / 1e9
+                
                 logger.info(f"GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+                
+                if allocated < 0.5:
+                    logger.error("❌ CRITICAL: Model not on GPU! Less than 0.5GB allocated!")
+                    logger.error("The CSM generator.py load_csm_1b() function may have a bug")
+                    logger.error(f"Model thinks it's on: {model_device}")
+                    logger.error("CSM will run VERY slowly on CPU")
+                elif str(model_device) == "cpu":
+                    logger.error(f"❌ CRITICAL: Model is on CPU despite device={device}!")
+                    logger.error("There's a bug in load_csm_1b() - it's not respecting device parameter")
+                else:
+                    logger.info(f"✅ Model successfully on GPU ({allocated:.2f}GB)")
+            
+            load_time = time.time() - load_start
+            logger.info(f"✓ CSM loaded in {load_time:.2f}s (sample rate: {self.sample_rate}Hz)")
                 
         except Exception as e:
             logger.error(f"Failed to load CSM: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise
 
     def text_to_audio(
@@ -148,19 +187,34 @@ class CSMConverter:
             # 🔥 CRITICAL: Measure generation time
             gen_start = time.time()
             
+            # 🔥 Check GPU before generation
+            if self.device == "cuda":
+                before_mem = torch.cuda.memory_allocated(0) / 1e9
+                logger.debug(f"GPU Memory before generation: {before_mem:.2f}GB")
+            
             # Generate audio with CSM
             logger.debug("Generating audio tokens...")
             token_start = time.time()
             
-            audio_tensor = self.generator.generate(
-                text=text,
-                speaker=speaker,
-                context=[],
-                max_audio_length_ms=max_audio_length_ms
-            )
+            # 🔥 FORCE: Ensure generation uses GPU
+            with torch.cuda.device(0) if self.device == "cuda" else torch.no_grad():
+                audio_tensor = self.generator.generate(
+                    text=text,
+                    speaker=speaker,
+                    context=[],
+                    max_audio_length_ms=max_audio_length_ms
+                )
             
             token_time = time.time() - token_start
             logger.debug(f"Token generation: {token_time:.2f}s")
+            
+            # 🔥 Check GPU after generation
+            if self.device == "cuda":
+                torch.cuda.synchronize()
+                after_mem = torch.cuda.memory_allocated(0) / 1e9
+                logger.debug(f"GPU Memory after generation: {after_mem:.2f}GB")
+                if after_mem - before_mem < 0.1:
+                    logger.warning("⚠️  GPU memory didn't increase during generation - may be using CPU!")
 
             # Create temp file if no output path specified
             if output_path is None:
