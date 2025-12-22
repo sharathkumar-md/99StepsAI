@@ -1,6 +1,7 @@
 """
 CSM Integration Module
 Handles text-to-speech conversion using CSM (Conversational Speech Model)
+OPTIMIZED FOR GPU (SageMaker g5.xlarge A10G)
 """
 
 # Suppress ALL warnings BEFORE any imports
@@ -13,6 +14,7 @@ warnings.filterwarnings('ignore')
 
 import sys
 import logging
+import time
 import torch
 import torchaudio
 from pathlib import Path
@@ -76,21 +78,43 @@ class CSMConverter:
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.allow_tf32 = False
 
-        # Auto-detect device
+        # 🔥 Auto-detect device with explicit GPU check
         if device is None:
             if torch.cuda.is_available():
                 device = "cuda"
+                logger.info(f"✓ GPU Detected: {torch.cuda.get_device_name(0)}")
+                logger.info(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
             else:
                 device = "cpu"
+                logger.warning("⚠️  No GPU detected - CSM will be VERY slow on CPU!")
 
         self.device = device
-        logger.info(f"Initializing CSM on device: {device}")
+        logger.info(f"CSM Device: {device}")
+        
+        # 🔥 Enable optimizations for GPU
+        if device == "cuda":
+            # Enable TF32 for faster matmul on Ampere GPUs (A10G)
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            logger.info("TF32 enabled for faster inference on A10G GPU")
 
-        # Load CSM model
+        # Load CSM model with optimizations
         try:
+            logger.info("Loading CSM model (fixie-ai/ultravox or similar)...")
+            load_start = time.time()
+            
             self.generator = load_csm_1b(device=device)
             self.sample_rate = self.generator.sample_rate
-            logger.info(f"CSM loaded successfully (sample rate: {self.sample_rate}Hz)")
+            
+            load_time = time.time() - load_start
+            logger.info(f"✓ CSM loaded in {load_time:.2f}s (sample rate: {self.sample_rate}Hz)")
+            
+            # Check GPU memory after loading
+            if device == "cuda":
+                allocated = torch.cuda.memory_allocated(0) / 1e9
+                reserved = torch.cuda.memory_reserved(0) / 1e9
+                logger.info(f"GPU Memory: {allocated:.2f}GB allocated, {reserved:.2f}GB reserved")
+                
         except Exception as e:
             logger.error(f"Failed to load CSM: {e}")
             raise
@@ -121,13 +145,22 @@ class CSMConverter:
         logger.info(f"Converting text to audio: '{text[:50]}...'")
 
         try:
+            # 🔥 CRITICAL: Measure generation time
+            gen_start = time.time()
+            
             # Generate audio with CSM
+            logger.debug("Generating audio tokens...")
+            token_start = time.time()
+            
             audio_tensor = self.generator.generate(
                 text=text,
                 speaker=speaker,
                 context=[],
                 max_audio_length_ms=max_audio_length_ms
             )
+            
+            token_time = time.time() - token_start
+            logger.debug(f"Token generation: {token_time:.2f}s")
 
             # Create temp file if no output path specified
             if output_path is None:
@@ -139,14 +172,27 @@ class CSMConverter:
                 temp_file.close()
 
             # Save audio
+            logger.debug("Saving audio file...")
+            save_start = time.time()
+            
             torchaudio.save(
                 output_path,
                 audio_tensor.unsqueeze(0).cpu(),
                 self.sample_rate
             )
+            
+            save_time = time.time() - save_start
+            total_time = time.time() - gen_start
+            audio_duration = len(audio_tensor) / self.sample_rate
 
             logger.info(f"Audio generated successfully: {output_path}")
-            logger.debug(f"Audio duration: {len(audio_tensor) / self.sample_rate:.2f}s")
+            logger.debug(f"Audio duration: {audio_duration:.2f}s")
+            logger.debug(f"Performance - Generation: {token_time:.2f}s, Save: {save_time:.2f}s, Total: {total_time:.2f}s")
+            
+            # 🔥 GPU utilization check
+            if self.device == "cuda":
+                allocated = torch.cuda.memory_allocated(0) / 1e9
+                logger.debug(f"GPU Memory: {allocated:.2f}GB in use")
 
             return output_path
 
@@ -190,25 +236,66 @@ class CSMConverter:
         logger.info(f"Generated {len(audio_paths)} audio files")
         return audio_paths
 
+    def __del__(self):
+        """🔥 Cleanup GPU memory on deletion"""
+        if hasattr(self, 'generator') and self.device == "cuda":
+            try:
+                del self.generator
+                torch.cuda.empty_cache()
+                logger.debug("CSM model cleaned up from GPU")
+            except:
+                pass
+
 
 def main():
-    """Test CSM integration"""
+    """Test CSM integration with GPU diagnostics"""
     logger.info("="*60)
-    logger.info("CSM INTEGRATION TEST")
+    logger.info("CSM INTEGRATION TEST (GPU Optimized)")
     logger.info("="*60)
+    
+    # GPU Diagnostics
+    if torch.cuda.is_available():
+        logger.info(f"\n🔍 GPU Diagnostics:")
+        logger.info(f"  Device: {torch.cuda.get_device_name(0)}")
+        logger.info(f"  CUDA Version: {torch.version.cuda}")
+        logger.info(f"  Total VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+        logger.info(f"  Available VRAM: {(torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)) / 1e9:.2f} GB")
+    else:
+        logger.warning("⚠️  No GPU available - test will be slow!")
 
     # Initialize CSM
     logger.info("\nInitializing CSM...")
+    init_start = time.time()
     csm = CSMConverter()
+    init_time = time.time() - init_start
+    logger.info(f"Initialization took: {init_time:.2f}s")
 
     # Test text-to-audio
-    test_text = "Hello, this is a test of the CSM text to speech system."
-    logger.info(f"\nTest: Converting text to audio")
+    test_text = "Hello! This is a test of the conversational speech model running on GPU."
+    logger.info(f"\n🎤 Test: Converting text to audio")
     logger.info(f"Text: {test_text}")
 
+    test_start = time.time()
     audio_path = csm.text_to_audio(test_text, output_path="test_csm_output.wav")
+    test_time = time.time() - test_start
 
-    logger.info(f"\nAudio saved to: {audio_path}")
+    logger.info(f"\n✓ Audio saved to: {audio_path}")
+    logger.info(f"✓ Generation took: {test_time:.2f}s")
+    
+    # Performance assessment
+    if test_time < 3.0:
+        logger.info("✅ EXCELLENT - GPU is working properly!")
+    elif test_time < 10.0:
+        logger.warning("⚠️  SLOW - Check GPU utilization")
+    else:
+        logger.error("❌ VERY SLOW - CSM likely running on CPU!")
+    
+    # Final GPU stats
+    if torch.cuda.is_available():
+        allocated = torch.cuda.memory_allocated(0) / 1e9
+        logger.info(f"\nGPU Memory Used: {allocated:.2f}GB")
+    
+    logger.info("\n" + "="*60)
     logger.info("✓ CSM integration test complete!")
     logger.info("="*60)
 
