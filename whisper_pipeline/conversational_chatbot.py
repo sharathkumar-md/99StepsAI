@@ -12,34 +12,38 @@ Pipeline Flow:
 This ensures conversational quality from CSM while maintaining clean text output.
 """
 
-# Suppress warnings before imports
-import warnings
-warnings.filterwarnings('ignore')
-
-import os
-import sys
 import logging
-import time
-import numpy as np
-from pathlib import Path
+import sys
+import os
 
-from csm_integration import CSMConverter
-from asr_whisper import WhisperASR
-from conversation_llm import ConversationLLM
-
-# Configure logging
 os.makedirs('logs', exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[
         logging.FileHandler('logs/chatbot.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+        logging.StreamHandler(sys.stdout),
+    ],
+    force=True   # REQUIRED
 )
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
+logger.info(" LOGGING INITIALIZED ")
+
+import warnings
+warnings.filterwarnings('ignore')
+
+import time
+import numpy as np
+from pathlib import Path
+
+os.environ["TQDM_DISABLE"] = "1"
+
+from csm_integration import CSMConverter
+from asr_whisper import WhisperASR
+from conversation_llm import ConversationLLM
 
 class ConversationalChatbot:
     """
