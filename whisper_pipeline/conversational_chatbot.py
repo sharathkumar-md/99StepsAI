@@ -1,15 +1,14 @@
 """
-Conversational Chatbot with Dual-LLM Pipeline
+Conversational Chatbot with LLM + CSM Pipeline
 
 Pipeline Flow:
 1. User Input
 2. LLM Response Generation (llama3.2) → Generates conversational response
 3. CSM Text-to-Speech → Converts response to natural audio
-4. Whisper Speech-to-Text → Transcribes audio (may add fillers)
-5. LLM Text Cleanup (llama3.2) → Cleans transcription
-6. Final Clean Output
+4. Whisper Speech-to-Text → Transcribes CSM audio output
+5. Return Whisper Output → Direct CSM audio transcription
 
-This ensures conversational quality from CSM while maintaining clean text output.
+This preserves CSM's natural conversational audio characteristics in text form.
 """
 
 import logging
@@ -47,15 +46,15 @@ from conversation_llm import ConversationLLM
 
 class ConversationalChatbot:
     """
-    Conversational chatbot with Dual-LLM + CSM pipeline
+    Conversational chatbot with LLM + CSM pipeline
 
-    Complete Flow:
-    User input → LLM generates response → CSM audio → Whisper transcription → LLM cleanup → Clean output
+    Pipeline:
+    User input → LLM generates response → CSM audio → Whisper transcription → CSM output
 
     Features:
     - Conversational AI with memory
     - Natural audio quality from CSM
-    - Clean text output
+    - CSM audio characteristics preserved in text
     """
 
     def __init__(
@@ -79,15 +78,13 @@ class ConversationalChatbot:
         logger.info("="*60)
 
         # Initialize components
-        logger.info("Loading CSM...")
+        logger.info("Loading CSM (Conversational Speech Model)...")
         self.csm = CSMConverter(device=csm_device)
 
-        logger.info("Loading Whisper...")
+        logger.info("Loading Whisper (for CSM audio transcription)...")
         self.whisper = WhisperASR(model_size=whisper_model_size)
 
-        logger.info("Loading Dual-Mode LLM (llama3.2)...")
-        logger.info("  - Mode 1: Response Generation")
-        logger.info("  - Mode 2: Text Cleanup")
+        logger.info("Loading LLM (llama3.2 for response generation)...")
         self.llm = ConversationLLM(
             llm_model=llm_model
         )
@@ -203,16 +200,16 @@ class ConversationalChatbot:
 
     def process_user_input(self, user_input: str, input_type: str = "text") -> str:
         """
-        Process user input through complete dual-LLM pipeline
+        Process user input through LLM + CSM pipeline
 
-        Pipeline: User → LLM Response → CSM Audio → Whisper → LLM Cleanup → Output
+        Pipeline: User → LLM Response → CSM Audio → Whisper → CSM Output
 
         Args:
             user_input: User's message (text) or path to audio file
             input_type: "text" or "audio"
 
         Returns:
-            Chatbot's clean conversational response
+            CSM audio transcription (Whisper output)
         """
         # 🔥 Start total timing
         request_start = time.time()
@@ -237,7 +234,7 @@ class ConversationalChatbot:
             raise ValueError(f"Invalid input_type: {input_type}")
 
         # Step 2: LLM generates conversational response
-        logger.info("\n[STEP 1/4] LLM Response Generation (llama3.2)")
+        logger.info("\n[STEP 1/3] LLM Response Generation (llama3.2)")
         logger.info("-"*60)
         logger.info("Generating conversational response...")
         
@@ -250,7 +247,7 @@ class ConversationalChatbot:
         logger.info("="*60)
 
         # Step 3: CSM converts response to natural audio
-        logger.info("\n[STEP 2/4] CSM Audio Generation")
+        logger.info("\n[STEP 2/3] CSM Audio Generation")
         logger.info("-"*60)
         logger.info("Converting LLM response to conversational audio...")
 
@@ -263,9 +260,9 @@ class ConversationalChatbot:
         logger.info(f"✓ CSM audio: {csm_audio_path} (took {csm_time:.2f}s)")
 
         # Step 4: Whisper transcribes CSM audio
-        logger.info("\n[STEP 3/4] Whisper Transcription")
+        logger.info("\n[STEP 3/3] Whisper Transcription of CSM Audio")
         logger.info("-"*60)
-        logger.info("Transcribing CSM audio...")
+        logger.info("Transcribing CSM audio to get final response...")
 
         whisper_start = time.time()
         transcription = self.whisper.transcribe(
@@ -291,33 +288,23 @@ class ConversationalChatbot:
             os.unlink(csm_audio_path)
         except:
             pass
-
-        # Step 5: LLM cleans Whisper transcription
-        logger.info("\n[STEP 4/4] LLM Text Cleanup (llama3.2)")
-        logger.info("-"*60)
-        logger.info("Cleaning Whisper transcription...")
-
-        cleanup_start = time.time()
-        final_response = self.llm.cleanup_text(whisper_output)
-        cleanup_time = time.time() - cleanup_start
         
         # 🔥 Calculate total request time
         total_time = time.time() - request_start
 
         logger.info("="*60)
-        logger.info("✓ FINAL RESPONSE READY")
+        logger.info("✓ CSM RESPONSE READY")
         logger.info("="*60)
-        logger.info(f"🎯 CLEAN OUTPUT: '{final_response}'")
+        logger.info(f"🎯 CSM OUTPUT (via Whisper): '{whisper_output}'")
         logger.info("")
         logger.info(f"⏱️  TIMING BREAKDOWN:")
         logger.info(f"   LLM Response:  {llm_gen_time:.2f}s")
         logger.info(f"   CSM Audio:     {csm_time:.2f}s")
         logger.info(f"   Whisper:       {whisper_time:.2f}s")
-        logger.info(f"   LLM Cleanup:   {cleanup_time:.2f}s")
         logger.info(f"   TOTAL:         {total_time:.2f}s")
         logger.info("="*60)
 
-        return final_response
+        return whisper_output
 
     def chat(self, message: str) -> str:
         """
@@ -361,8 +348,8 @@ def main():
     # Initialize chatbot
     try:
         logger.info("Initializing chatbot...")
-        logger.info("Pipeline: User → LLM Response → CSM Audio → Whisper → LLM Cleanup → Clean Output")
-        logger.info("Dual-Mode: Response Generation + Text Cleanup")
+        logger.info("Pipeline: User → LLM Response → CSM Audio → Whisper → CSM Output")
+        logger.info("Gets natural CSM audio characteristics in text form")
         logger.info("")
 
         chatbot = ConversationalChatbot(
