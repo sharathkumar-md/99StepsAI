@@ -19,6 +19,8 @@ warnings.filterwarnings('ignore')
 import os
 import sys
 import logging
+import time
+import numpy as np
 from pathlib import Path
 
 from csm_integration import CSMConverter
@@ -86,10 +88,114 @@ class ConversationalChatbot:
             llm_model=llm_model
         )
 
+        # 🔥 Pre-warm all models (CRITICAL for fast first response)
+        logger.info("\n" + "="*60)
+        logger.info("PRE-WARMING MODELS (One-time setup)")
         logger.info("="*60)
-        logger.info("✓ Chatbot Ready!")
+        self._prewarm_models()
+
+        logger.info("="*60)
+        logger.info("✓ Chatbot Ready - All Models Loaded!")
         logger.info("="*60)
         logger.info("")
+
+    def _prewarm_models(self):
+        """
+        Pre-warm all models by running dummy inference
+        This eliminates 5-10 second delay on first real request
+        
+        Flow:
+        1. CSM: Generate 1 second of dummy audio
+        2. Whisper: Transcribe 1 second of silence
+        3. LLM: Generate one dummy response and cleanup
+        """
+        total_start = time.time()
+        
+        try:
+            # Detect GPU
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    logger.info(f"✓ GPU Detected: {torch.cuda.get_device_name(0)}")
+                    logger.info(f"  VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+                else:
+                    logger.warning("⚠️  No GPU detected - running on CPU (slower)")
+            except Exception as e:
+                logger.debug(f"Could not check GPU: {e}")
+            
+            # 1. Pre-warm CSM (usually the slowest)
+            logger.info("\n[1/3] Pre-warming CSM model...")
+            csm_start = time.time()
+            try:
+                # Generate very short audio to load model into GPU
+                dummy_csm_path = self.csm.text_to_audio(
+                    text="Hi",
+                    output_path=None
+                )
+                csm_time = time.time() - csm_start
+                logger.info(f"✓ CSM ready in {csm_time:.2f}s")
+                
+                # Cleanup dummy file
+                try:
+                    os.unlink(dummy_csm_path)
+                except:
+                    pass
+            except Exception as e:
+                logger.warning(f"CSM pre-warming failed: {e}")
+            
+            # 2. Pre-warm Whisper
+            logger.info("\n[2/3] Pre-warming Whisper model...")
+            whisper_start = time.time()
+            try:
+                # Create 1 second of silence for dummy transcription
+                dummy_audio = np.zeros(16000, dtype=np.float32)  # 1 sec at 16kHz
+                
+                # Save to temp file
+                import tempfile
+                import soundfile as sf
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                    dummy_audio_path = tmp.name
+                    sf.write(dummy_audio_path, dummy_audio, 16000)
+                
+                # Transcribe to load model
+                self.whisper.transcribe(dummy_audio_path, verbose=False)
+                whisper_time = time.time() - whisper_start
+                logger.info(f"✓ Whisper ready in {whisper_time:.2f}s")
+                
+                # Cleanup
+                try:
+                    os.unlink(dummy_audio_path)
+                except:
+                    pass
+            except Exception as e:
+                logger.warning(f"Whisper pre-warming failed: {e}")
+            
+            # 3. Pre-warm LLM (both modes)
+            logger.info("\n[3/3] Pre-warming LLM models...")
+            llm_start = time.time()
+            try:
+                # Test response generation
+                self.llm.generate_response("Hi")
+                # Test text cleanup
+                self.llm.cleanup_text("um, hello there")
+                # Clear the dummy conversation
+                self.llm.reset_conversation()
+                
+                llm_time = time.time() - llm_start
+                logger.info(f"✓ LLM ready in {llm_time:.2f}s")
+            except Exception as e:
+                logger.warning(f"LLM pre-warming failed: {e}")
+            
+            total_time = time.time() - total_start
+            
+            logger.info("\n" + "-"*60)
+            logger.info(f"✓ Pre-warming complete in {total_time:.2f}s")
+            logger.info("Next requests will be MUCH faster (1-3s instead of 10-15s)")
+            logger.info("-"*60)
+            
+        except Exception as e:
+            logger.warning(f"Pre-warming encountered errors: {e}")
+            logger.warning("Models will load on first request instead")
 
     def process_user_input(self, user_input: str, input_type: str = "text") -> str:
         """
@@ -104,6 +210,9 @@ class ConversationalChatbot:
         Returns:
             Chatbot's clean conversational response
         """
+        # 🔥 Start total timing
+        request_start = time.time()
+        
         logger.info("\n" + "="*60)
         logger.info("PROCESSING USER INPUT")
         logger.info("="*60)
@@ -127,11 +236,13 @@ class ConversationalChatbot:
         logger.info("\n[STEP 1/4] LLM Response Generation (llama3.2)")
         logger.info("-"*60)
         logger.info("Generating conversational response...")
-
+        
+        llm_gen_start = time.time()
         llm_response = self.llm.generate_response(user_text)
+        llm_gen_time = time.time() - llm_gen_start
 
         logger.info("="*60)
-        logger.info(f"💬 LLM RESPONSE: '{llm_response}'")
+        logger.info(f"💬 LLM RESPONSE: '{llm_response}' (took {llm_gen_time:.2f}s)")
         logger.info("="*60)
 
         # Step 3: CSM converts response to natural audio
@@ -139,25 +250,29 @@ class ConversationalChatbot:
         logger.info("-"*60)
         logger.info("Converting LLM response to conversational audio...")
 
+        csm_start = time.time()
         csm_audio_path = self.csm.text_to_audio(
             text=llm_response,
             output_path=None  # Use temp file
         )
-        logger.info(f"✓ CSM audio: {csm_audio_path}")
+        csm_time = time.time() - csm_start
+        logger.info(f"✓ CSM audio: {csm_audio_path} (took {csm_time:.2f}s)")
 
         # Step 4: Whisper transcribes CSM audio
         logger.info("\n[STEP 3/4] Whisper Transcription")
         logger.info("-"*60)
         logger.info("Transcribing CSM audio...")
 
+        whisper_start = time.time()
         transcription = self.whisper.transcribe(
             csm_audio_path,
             verbose=False
         )
         whisper_output = transcription["text"].strip()
+        whisper_time = time.time() - whisper_start
 
         logger.info("="*60)
-        logger.info(f"📝 WHISPER OUTPUT: '{whisper_output}'")
+        logger.info(f"📝 WHISPER OUTPUT: '{whisper_output}' (took {whisper_time:.2f}s)")
         logger.info("="*60)
 
         # If Whisper returns empty, CSM audio might be silent - use original LLM response
@@ -178,12 +293,24 @@ class ConversationalChatbot:
         logger.info("-"*60)
         logger.info("Cleaning Whisper transcription...")
 
+        cleanup_start = time.time()
         final_response = self.llm.cleanup_text(whisper_output)
+        cleanup_time = time.time() - cleanup_start
+        
+        # 🔥 Calculate total request time
+        total_time = time.time() - request_start
 
         logger.info("="*60)
         logger.info("✓ FINAL RESPONSE READY")
         logger.info("="*60)
         logger.info(f"🎯 CLEAN OUTPUT: '{final_response}'")
+        logger.info("")
+        logger.info(f"⏱️  TIMING BREAKDOWN:")
+        logger.info(f"   LLM Response:  {llm_gen_time:.2f}s")
+        logger.info(f"   CSM Audio:     {csm_time:.2f}s")
+        logger.info(f"   Whisper:       {whisper_time:.2f}s")
+        logger.info(f"   LLM Cleanup:   {cleanup_time:.2f}s")
+        logger.info(f"   TOTAL:         {total_time:.2f}s")
         logger.info("="*60)
 
         return final_response
