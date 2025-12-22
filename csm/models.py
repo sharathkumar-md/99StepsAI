@@ -173,7 +173,8 @@ class Model(
             decoder_h = self.decoder(self.projection(curr_h), input_pos=curr_pos, mask=curr_decoder_mask).to(
                 dtype=dtype
             )
-            ci_logits = torch.mm(decoder_h[:, -1, :], self.audio_head[i - 1])
+            # 🔥 FIX: Ensure matrix multiplication stays on GPU
+            ci_logits = torch.mm(decoder_h[:, -1, :], self.audio_head[i - 1].to(decoder_h.device))
             ci_sample = sample_topk(ci_logits, topk, temperature)
             ci_embed = self._embed_audio(i, ci_sample)
 
@@ -193,8 +194,13 @@ class Model(
     def _embed_tokens(self, tokens: torch.Tensor) -> torch.Tensor:
         text_embeds = self.text_embeddings(tokens[:, :, -1]).unsqueeze(-2)
 
+        # 🔥 FIX: Ensure arange uses same device as tokens
         audio_tokens = tokens[:, :, :-1] + (
-            self.config.audio_vocab_size * torch.arange(self.config.audio_num_codebooks, device=tokens.device)
+            self.config.audio_vocab_size * torch.arange(
+                self.config.audio_num_codebooks, 
+                device=tokens.device,  # 🔥 Added device parameter
+                dtype=tokens.dtype
+            )
         )
         audio_embeds = self.audio_embeddings(audio_tokens.view(-1)).reshape(
             tokens.size(0), tokens.size(1), self.config.audio_num_codebooks, -1

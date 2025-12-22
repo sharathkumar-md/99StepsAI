@@ -116,6 +116,10 @@ class Generator:
         temperature: float = 0.9,
         topk: int = 50,
     ) -> torch.Tensor:
+        # 🔥 FIX: Force GPU synchronization at start
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize()
+            
         self._model.reset_caches()
 
         max_generation_len = int(max_audio_length_ms / 80)
@@ -151,13 +155,23 @@ class Generator:
 
             samples.append(sample)
 
-            curr_tokens = torch.cat([sample, torch.zeros(1, 1).long().to(self.device)], dim=1).unsqueeze(1)
+            # 🔥 FIX: Ensure new tensors stay on GPU
+            curr_tokens = torch.cat(
+                [sample, torch.zeros(1, 1, device=self.device, dtype=torch.long)], 
+                dim=1
+            ).unsqueeze(1)
             curr_tokens_mask = torch.cat(
-                [torch.ones_like(sample).bool(), torch.zeros(1, 1).bool().to(self.device)], dim=1
+                [torch.ones_like(sample).bool(), torch.zeros(1, 1, device=self.device, dtype=torch.bool)], 
+                dim=1
             ).unsqueeze(1)
             curr_pos = curr_pos[:, -1:] + 1
 
         audio = self._audio_tokenizer.decode(torch.stack(samples).permute(1, 2, 0)).squeeze(0).squeeze(0)
+
+        # 🔥 FIX: Ensure audio tensor is on correct device before watermarking
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize()
+            audio = audio.to(self.device)
 
         # This applies an imperceptible watermark to identify audio as AI-generated.
         # Watermarking ensures transparency, dissuades misuse, and enables traceability.
@@ -165,6 +179,10 @@ class Generator:
         # If using CSM 1B in another application, use your own private key and keep it secret.
         audio, wm_sample_rate = watermark(self._watermarker, audio, self.sample_rate, CSM_1B_GH_WATERMARK)
         audio = torchaudio.functional.resample(audio, orig_freq=wm_sample_rate, new_freq=self.sample_rate)
+        
+        # 🔥 FIX: Final GPU sync before returning
+        if self.device.type == 'cuda':
+            torch.cuda.synchronize()
 
         return audio
 
