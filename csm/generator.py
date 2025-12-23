@@ -148,9 +148,21 @@ class Generator:
                 f"Inputs too long, must be below max_seq_len - max_generation_len: {max_context_len}"
             )
 
-        for _ in range(max_generation_len):
+        import time
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        loop_start = time.time()
+        for i in range(max_generation_len):
+            iter_start = time.time()
             sample = self._model.generate_frame(curr_tokens, curr_tokens_mask, curr_pos, temperature, topk)
+            iter_time = time.time() - iter_start
+            
+            if i < 3 or i % 20 == 0:  # Log first 3 and every 20th iteration
+                logger.debug(f"Iteration {i}: {iter_time:.3f}s, sample device: {sample.device}")
+            
             if torch.all(sample == 0):
+                logger.debug(f"EOS reached at iteration {i}")
                 break  # eos
 
             samples.append(sample)
@@ -166,9 +178,16 @@ class Generator:
             ).unsqueeze(1)
             curr_pos = curr_pos[:, -1:] + 1
 
+        loop_time = time.time() - loop_start
+        logger.debug(f"Generation loop completed: {loop_time:.3f}s for {len(samples)} samples")
+        
+        decode_start = time.time()
         audio = self._audio_tokenizer.decode(torch.stack(samples).permute(1, 2, 0)).squeeze(0).squeeze(0)
+        decode_time = time.time() - decode_start
+        logger.debug(f"Audio decode: {decode_time:.3f}s")
 
         # 🔥 FIX: Ensure audio tensor is on correct device before watermarking
+        watermark_start = time.time()
         if self.device.type == 'cuda':
             torch.cuda.synchronize()
             audio = audio.to(self.device)
@@ -179,6 +198,8 @@ class Generator:
         # If using CSM 1B in another application, use your own private key and keep it secret.
         audio, wm_sample_rate = watermark(self._watermarker, audio, self.sample_rate, CSM_1B_GH_WATERMARK)
         audio = torchaudio.functional.resample(audio, orig_freq=wm_sample_rate, new_freq=self.sample_rate)
+        watermark_time = time.time() - watermark_start
+        logger.debug(f"Watermarking: {watermark_time:.3f}s")
         
         # 🔥 FIX: Final GPU sync before returning
         if self.device.type == 'cuda':
@@ -245,6 +266,7 @@ def load_csm_1b(device: str = "cuda") -> Generator:
         print(f"Warning: Could not load pretrained weights: {e}")
     
     model.to(device=device, dtype=torch.bfloat16)
+    model.eval()  # 🔥 CRITICAL: Set model to eval mode for inference
 
     generator = Generator(model)
     return generator
