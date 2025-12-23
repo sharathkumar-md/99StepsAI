@@ -277,9 +277,6 @@ def load_csm_1b(device: str = "cuda") -> Generator:
     
     model.to(device=device, dtype=torch.bfloat16)
     model.eval()  # 🔥 CRITICAL: Set model to eval mode for inference
-    
-    # torch.compile() tested but didn't provide speedup - disabling for now
-    # Root cause appears to be torchtune transformer implementation
 
     generator = Generator(model)
     return generator
