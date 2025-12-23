@@ -267,6 +267,13 @@ def load_csm_1b(device: str = "cuda") -> Generator:
     
     model.to(device=device, dtype=torch.bfloat16)
     model.eval()  # 🔥 CRITICAL: Set model to eval mode for inference
+    
+    # 🚀 OPTIMIZATION: Compile model for 2-3x speedup on A10G GPU
+    # Using reduce-overhead mode for autoregressive generation
+    if device == "cuda":
+        print("Compiling model with torch.compile (this takes ~60s first time)...")
+        model = torch.compile(model, mode="reduce-overhead", fullgraph=False)
+        print("✓ Model compiled successfully")
 
     generator = Generator(model)
     return generator
