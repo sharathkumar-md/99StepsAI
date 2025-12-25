@@ -67,6 +67,12 @@ class StreamingConversationalChatbot:
         logger.info("STREAMING CONVERSATIONAL CHATBOT")
         logger.info("=" * 60)
         
+        # Initialize LLM
+        logger.info("Initializing LLM...")
+        from conversation_llm import ConversationLLM
+        self.llm = ConversationLLM(llm_model="llama3.2")
+        logger.info("✓ LLM ready")
+        
         # Load CSM generator
         logger.info("Loading CSM generator...")
         from generator import load_csm_1b
@@ -83,40 +89,6 @@ class StreamingConversationalChatbot:
         logger.info("✓ Whisper ready (CPU)")
         
         logger.info("=" * 60)
-        
-    def get_llm_response(self, user_input: str, conversation_history: list = None) -> str:
-        """
-        Get response from LLM (Llama via Ollama).
-        
-        Args:
-            user_input: User's message
-            conversation_history: Previous conversation turns
-            
-        Returns:
-            LLM's response text
-        """
-        import requests
-        
-        messages = conversation_history or []
-        messages.append({"role": "user", "content": user_input})
-        
-        try:
-            response = requests.post(
-                f"{self.llm_endpoint}/api/chat",
-                json={
-                    "model": "llama3.2",
-                    "messages": messages,
-                    "stream": False
-                },
-                timeout=30
-            )
-            response.raise_for_status()
-            llm_text = response.json()['message']['content']
-            return llm_text.strip()
-            
-        except Exception as e:
-            logger.error(f"❌ LLM error: {e}")
-            return "I'm having trouble processing that right now."
             
     def process_streaming(
         self,
@@ -150,7 +122,7 @@ class StreamingConversationalChatbot:
         # Step 1: Get LLM response
         logger.info(f"📥 User: {user_input}")
         llm_start = time.time()
-        llm_response = self.get_llm_response(user_input)
+        llm_response = self.llm.generate_response(user_input)
         llm_time = time.time() - llm_start
         
         # Split response into shorter chunks for faster audio generation
