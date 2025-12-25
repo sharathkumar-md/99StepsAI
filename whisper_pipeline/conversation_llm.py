@@ -57,10 +57,11 @@ class ConversationLLM:
                 "You are a friendly, helpful voice assistant having a natural conversation.\n\n"
                 "CONVERSATIONAL STYLE:\n"
                 "- Talk naturally like a friend, not a formal assistant\n"
-                "- Keep responses SHORT (1-3 sentences) since this is voice conversation\n"
+                "- Keep responses ULTRA SHORT (1-2 sentences MAX) - this is voice, not text\n"
                 "- Use everyday language and contractions (I'm, you're, that's)\n"
                 "- Be warm and personable - respond to emotions naturally\n"
-                "- NEVER say 'as an AI' or 'as a language model' - just be helpful\n\n"
+                "- NEVER say 'as an AI' or 'as a language model' - just be helpful\n"
+                "- For longer explanations, stop after 1-2 sentences and let user ask follow-up\n\n"
                 "RESPONSE GUIDELINES:\n"
                 "- Answer directly without unnecessary context or caveats\n"
                 "- If asking a follow-up, make it conversational and brief\n"
@@ -176,6 +177,93 @@ class ConversationLLM:
             logger.error("Make sure Ollama is running: ollama serve")
             logger.error(f"And model is available: ollama pull {self.llm_model}")
             raise
+    
+    def split_response_into_chunks(self, text: str, max_words: int = 15) -> List[str]:
+        """
+        Split long response into shorter chunks for faster audio generation.
+        
+        Args:
+            text: Full response text
+            max_words: Maximum words per chunk (default 15 = ~2-3 seconds audio)
+            
+        Returns:
+            List of text chunks
+        """
+        import re
+        
+        # Split by sentences first
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        
+        chunks = []
+        current_chunk = ""
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+                
+            words_in_sentence = len(sentence.split())
+            words_in_chunk = len(current_chunk.split()) if current_chunk else 0
+            
+            # If adding this sentence would exceed max_words, save current chunk
+            if words_in_chunk > 0 and (words_in_chunk + words_in_sentence) > max_words:
+                chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            else:
+                # Add sentence to current chunk
+                if current_chunk:
+                    current_chunk += " " + sentence
+                else:
+                    current_chunk = sentence
+        
+        # Add remaining chunk
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        return chunks if chunks else [text]
+    
+    def split_response_into_chunks(self, text: str, max_words: int = 15) -> list:
+        """
+        Split long response into shorter chunks for faster audio generation.
+        
+        Args:
+            text: Full response text
+            max_words: Maximum words per chunk (default 15 = ~2-3 seconds audio)
+            
+        Returns:
+            List of text chunks
+        """
+        # Split by sentences first
+        import re
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        
+        chunks = []
+        current_chunk = ""
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+                
+            words_in_sentence = len(sentence.split())
+            words_in_chunk = len(current_chunk.split())
+            
+            # If adding this sentence would exceed max_words, save current chunk
+            if words_in_chunk > 0 and (words_in_chunk + words_in_sentence) > max_words:
+                chunks.append(current_chunk.strip())
+                current_chunk = sentence
+            else:
+                # Add sentence to current chunk
+                if current_chunk:
+                    current_chunk += " " + sentence
+                else:
+                    current_chunk = sentence
+        
+        # Add remaining chunk
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        return chunks if chunks else [text]
 
     def cleanup_text(self, whisper_text: str) -> str:
         """

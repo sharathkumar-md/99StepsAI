@@ -153,59 +153,76 @@ class StreamingConversationalChatbot:
         llm_response = self.get_llm_response(user_input)
         llm_time = time.time() - llm_start
         
-        logger.info(f"🤖 LLM ({llm_time:.2f}s): {llm_response[:100]}...")
-        yield {
-            "type": "llm_response",
-            "text": llm_response,
-            "time": llm_time
-        }
+        # Split response into shorter chunks for faster audio generation
+        response_chunks = self.llm.split_response_into_chunks(llm_response, max_words=15)
+        logger.info(f"🤖 LLM ({llm_time:.2f}s): Split into {len(response_chunks)} chunks")
         
         # Step 2: Start Whisper worker thread
         self.whisper_asr.start_processing()
         
-        # Step 3: Stream CSM audio generation
-        logger.info("🎵 Starting streaming audio generation...")
-        csm_start = time.time()
+        # Step 3: Process each response chunk separately
+        first_audio_time = None
+        total_audio_chunks = 0
+        total_csm_time = 0
         
-        audio_chunks = []
-        chunk_num = 0
-        
-        for audio_chunk in self.csm_generator.generate_streaming(
-            text=llm_response,
-            speaker=0,
-            context=[],
-            max_audio_length_ms=8000,  # 8 second hard limit
-            chunk_frames=6  # 0.5s chunks
-        ):
-            chunk_num += 1
-            elapsed = time.time() - start_time
+        for chunk_idx, response_chunk in enumerate(response_chunks, 1):
+            logger.info(f"📝 Processing chunk {chunk_idx}/{len(response_chunks)}: '{response_chunk}'")
             
-            # Save chunk
-            audio_chunks.append(audio_chunk)
-            
-            # Yield audio chunk immediately (user can play it)
-            logger.info(f"✅ Chunk {chunk_num} ready at {elapsed:.2f}s")
+            # Yield LLM response chunk
             yield {
-                "type": "audio_chunk",
-                "data": audio_chunk,
-                "chunk_num": chunk_num,
-                "elapsed_time": elapsed
+                "type": "llm_response",
+                "text": response_chunk,
+                "time": llm_time / len(response_chunks),
+                "chunk_num": chunk_idx,
+                "total_chunks": len(response_chunks)
             }
             
-            # Feed to Whisper (non-blocking)
-            self.whisper_asr.put_audio_chunk(audio_chunk)
+            # Stream CSM audio for this chunk
+            logger.info(f"🎵 Generating audio for chunk {chunk_idx}...")
+            csm_start = time.time()
+            chunk_audio = []
             
-            # Check for partial transcription
-            partial = self.whisper_asr.get_latest_partial()
-            if partial and chunk_num % 2 == 0:
+            for audio_chunk in self.csm_generator.generate_streaming(
+                text=response_chunk,  # Use the split chunk, not full response
+                speaker=0,
+                context=[],
+                max_audio_length_ms=8000,  # 8 second hard limit
+                chunk_frames=6  # 0.5s chunks
+            ):
+                total_audio_chunks += 1
+                elapsed = time.time() - start_time
+                
+                if first_audio_time is None:
+                    first_audio_time = elapsed
+                
+                # Save chunk
+                chunk_audio.append(audio_chunk)
+                
+                # Yield audio chunk immediately (user can play it)
+                logger.info(f"✅ Audio {total_audio_chunks} (response {chunk_idx}/{len(response_chunks)}) at {elapsed:.2f}s")
                 yield {
-                    "type": "partial_text",
-                    "text": partial,
-                    "chunk_num": chunk_num
+                    "type": "audio_chunk",
+                    "data": audio_chunk,
+                    "chunk_num": total_audio_chunks,
+                    "elapsed_time": elapsed,
+                    "response_chunk": chunk_idx
                 }
-        
-        csm_time = time.time() - csm_start
-        logger.info(f"✅ Audio generation complete: {csm_time:.2f}s for {chunk_num} chunks")
+            
+                # Feed to Whisper (non-blocking)
+                self.whisper_asr.put_audio_chunk(audio_chunk)
+                
+                # Check for partial transcription
+                partial = self.whisper_asr.get_latest_partial()
+                if partial and total_audio_chunks % 2 == 0:
+                    yield {
+                        "type": "partial_text",
+                        "text": partial,
+                        "chunk_num": total_audio_chunks
+                    }
+            
+            chunk_csm_time = time.time() - csm_start
+            total_csm_time += chunk_csm_time
+            logger.info(f"✅ Audio for response chunk {chunk_idx} complete: {chunk_csm_time:.2f}s")
         
         # Step 4: Wait for final Whisper transcription
         logger.info("⏳ Waiting for final transcription...")
@@ -218,27 +235,22 @@ class StreamingConversationalChatbot:
             "text": final_text
         }
         
-        # Optional: Save combined audio
-        if save_audio_path and audio_chunks:
-            full_audio = torch.cat(audio_chunks, dim=0)
-            torchaudio.save(save_audio_path, full_audio.unsqueeze(0).cpu(), self.csm_generator.sample_rate)
-            logger.info(f"💾 Saved audio: {save_audio_path}")
-        
         # Final stats
         total_time = time.time() - start_time
-        time_to_first_audio = csm_start - start_time + 0.5  # First chunk time
         
         logger.info("=" * 60)
-        logger.info(f"✅ COMPLETE - Total: {total_time:.2f}s, First audio: {time_to_first_audio:.2f}s")
+        logger.info(f"✅ COMPLETE - Total: {total_time:.2f}s, First audio: {first_audio_time:.2f}s")
+        logger.info(f"   Response chunks: {len(response_chunks)}, Total CSM: {total_csm_time:.2f}s")
         logger.info("=" * 60)
         
         yield {
             "type": "complete",
             "total_time": total_time,
-            "time_to_first_audio": time_to_first_audio,
+            "time_to_first_audio": first_audio_time,
             "llm_time": llm_time,
-            "csm_time": csm_time,
-            "num_chunks": chunk_num
+            "csm_time": total_csm_time,
+            "num_chunks": total_audio_chunks,
+            "response_chunks": len(response_chunks)
         }
 
 
@@ -286,16 +298,26 @@ def main():
             try:
                 audio_chunks = []
                 partial_texts = []
+                response_text = ""
                 
                 for event in chatbot.process_streaming(user_input):
                     if event['type'] == 'llm_response':
-                        # Print LLM response immediately
-                        print(f"🤖 Bot: {event['text']}\n")
+                        # Print each response chunk immediately
+                        if event['chunk_num'] == 1:
+                            print(f"🤖 Bot: {event['text']}", end="", flush=True)
+                            response_text = event['text']
+                        else:
+                            print(f" {event['text']}", end="", flush=True)
+                            response_text += " " + event['text']
+                        
+                        # New line if it's the last chunk
+                        if event['chunk_num'] == event['total_chunks']:
+                            print("\n")
                         
                     elif event['type'] == 'audio_chunk':
                         # Collect audio chunks (for later playback in web app)
                         audio_chunks.append(event['data'])
-                        logger.info(f"✅ Chunk {event['chunk_num']} at {event['elapsed_time']:.2f}s")
+                        logger.info(f"✅ Audio {event['chunk_num']} (response {event['response_chunk']}) at {event['elapsed_time']:.2f}s")
                         
                     elif event['type'] == 'partial_text':
                         # Show partial transcription progress
@@ -304,7 +326,7 @@ def main():
                         
                     elif event['type'] == 'final_text':
                         # Show final transcription (verification)
-                        print(f"✓ Audio transcription verified: '{event['text']}'")
+                        print(f"✓ Audio verified")
                         
                     elif event['type'] == 'complete':
                         # Performance summary
@@ -312,7 +334,8 @@ def main():
                                   f"First audio {event['time_to_first_audio']:.2f}s, "
                                   f"LLM {event['llm_time']:.2f}s, "
                                   f"CSM {event['csm_time']:.2f}s, "
-                                  f"{event['num_chunks']} chunks")
+                                  f"{event['response_chunks']} response chunks, "
+                                  f"{event['num_chunks']} audio chunks")
                 
             except KeyboardInterrupt:
                 print("\n\nGoodbye! 👋")
