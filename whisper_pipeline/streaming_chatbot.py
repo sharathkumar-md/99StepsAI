@@ -275,24 +275,28 @@ def main():
             
             try:
                 audio_chunks = []
-                response_text = ""
+                start_time = time.time()
+                chunk_transcriptions = {}
                 
                 for event in chatbot.process_streaming(user_input):
                     if event['type'] == 'llm_response':
-                        # Print each response chunk as a separate message with timestamp
-                        from datetime import datetime
-                        timestamp = datetime.now().strftime("%I:%M %p").lower()
-                        print(f"\n🤖 Bot: {event['text']}")
-                        print(f"{timestamp}")
-                        response_text += " " + event['text']
+                        # LLM response - don't show to user, just log
+                        logger.info(f"LLM chunk {event['chunk_num']}: {event['text']}")
                         
                     elif event['type'] == 'audio_chunk':
                         # Collect audio chunks silently
                         audio_chunks.append(event['data'])
                         
                     elif event['type'] == 'final_text':
-                        # Show verification checkmark
-                        print("✓")
+                        # Show Whisper transcription for this response chunk
+                        elapsed = time.time() - start_time
+                        response_chunk = event.get('response_chunk_num', 1)
+                        
+                        # Only show if we haven't shown this chunk yet
+                        if response_chunk not in chunk_transcriptions:
+                            chunk_transcriptions[response_chunk] = event['text']
+                            print(f"\n🤖 Bot: {event['text']}")
+                            print(f"{elapsed:.1f}s")
                         
                     elif event['type'] == 'complete':
                         # Performance summary in logs only
