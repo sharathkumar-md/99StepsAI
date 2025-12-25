@@ -34,15 +34,9 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('streaming_chatbot.log')
+        logging.FileHandler('streaming_chatbot.log')  # Only log to file
     ]
 )
-# Reduce console verbosity - only warnings for these modules
-logging.getLogger('httpx').setLevel(logging.WARNING)
-logging.getLogger('faster_whisper').setLevel(logging.WARNING) 
-logging.getLogger('streaming_asr').setLevel(logging.WARNING)
-logging.getLogger('conversation_llm').setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +63,7 @@ class StreamingConversationalChatbot:
         self.llm_endpoint = llm_endpoint
         self.device = "cuda" if use_gpu and torch.cuda.is_available() else "cpu"
         
+        # Silent initialization - all logs go to file only
         logger.info("=" * 60)
         logger.info("STREAMING CONVERSATIONAL CHATBOT")
         logger.info("=" * 60)
@@ -95,6 +90,9 @@ class StreamingConversationalChatbot:
         logger.info("✓ Whisper ready (CPU)")
         
         logger.info("=" * 60)
+        
+        # Show simple ready message to user
+        print("✓ Chatbot ready")
             
     def process_streaming(
         self,
