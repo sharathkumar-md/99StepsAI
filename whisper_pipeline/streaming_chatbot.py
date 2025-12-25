@@ -243,44 +243,92 @@ class StreamingConversationalChatbot:
 
 
 def main():
-    """Test streaming chatbot."""
-    chatbot = StreamingConversationalChatbot()
-    
-    print("\n" + "=" * 60)
-    print("STREAMING CHATBOT TEST")
-    print("=" * 60)
-    
-    test_input = "Hello! How are you today?"
-    print(f"\n📥 User: {test_input}\n")
-    
-    audio_chunks = []
-    
-    for event in chatbot.process_streaming(test_input, save_audio_path="streaming_test.wav"):
-        if event['type'] == 'llm_response':
-            print(f"🤖 Bot: {event['text']}\n")
+    """Interactive streaming chatbot."""
+    try:
+        chatbot = StreamingConversationalChatbot()
+        
+        # Interactive conversation loop
+        print("\n" + "=" * 60)
+        print("INTERACTIVE STREAMING CHATBOT")
+        print("=" * 60)
+        print("Commands:")
+        print("  /quit  - Exit chatbot")
+        print("  /reset - Reset conversation")
+        print("  /test  - Run quick test")
+        print("=" * 60)
+        print("")
+        
+        while True:
+            # Get user input
+            user_input = input("\n👤 You: ").strip()
             
-        elif event['type'] == 'audio_chunk':
-            print(f"🎵 Chunk {event['chunk_num']} received at {event['elapsed_time']:.2f}s")
-            audio_chunks.append(event['data'])
-            # In real app: play_audio(event['data'])
+            if not user_input:
+                continue
             
-        elif event['type'] == 'partial_text':
-            print(f"📝 Partial: '{event['text'][:50]}...'")
+            # Handle commands
+            if user_input == "/quit":
+                print("\nGoodbye! 👋")
+                break
             
-        elif event['type'] == 'final_text':
-            print(f"\n✅ Final transcription: '{event['text']}'")
+            if user_input == "/reset":
+                # Reset LLM conversation
+                chatbot.llm.reset_conversation()
+                print("✓ Conversation reset")
+                continue
             
-        elif event['type'] == 'complete':
-            print(f"\n📊 Performance:")
-            print(f"   Total time: {event['total_time']:.2f}s")
-            print(f"   Time to first audio: {event['time_to_first_audio']:.2f}s")
-            print(f"   LLM: {event['llm_time']:.2f}s")
-            print(f"   CSM: {event['csm_time']:.2f}s")
-            print(f"   Chunks: {event['num_chunks']}")
+            if user_input == "/test":
+                user_input = "Hello! How are you today?"
+                print(f"👤 You: {user_input}")
+            
+            # Process input with streaming
+            print("")  # Blank line before response
+            
+            try:
+                audio_chunks = []
+                partial_texts = []
+                
+                for event in chatbot.process_streaming(user_input):
+                    if event['type'] == 'llm_response':
+                        # Print LLM response immediately
+                        print(f"🤖 Bot: {event['text']}\n")
+                        
+                    elif event['type'] == 'audio_chunk':
+                        # Collect audio chunks (for later playback in web app)
+                        audio_chunks.append(event['data'])
+                        logger.info(f"✅ Chunk {event['chunk_num']} at {event['elapsed_time']:.2f}s")
+                        
+                    elif event['type'] == 'partial_text':
+                        # Show partial transcription progress
+                        partial_texts.append(event['text'])
+                        logger.info(f"📝 Partial: '{event['text'][:50]}...'")
+                        
+                    elif event['type'] == 'final_text':
+                        # Show final transcription (verification)
+                        print(f"✓ Audio transcription verified: '{event['text']}'")
+                        
+                    elif event['type'] == 'complete':
+                        # Performance summary
+                        logger.info(f"⏱️  Performance: Total {event['total_time']:.2f}s, "
+                                  f"First audio {event['time_to_first_audio']:.2f}s, "
+                                  f"LLM {event['llm_time']:.2f}s, "
+                                  f"CSM {event['csm_time']:.2f}s, "
+                                  f"{event['num_chunks']} chunks")
+                
+            except KeyboardInterrupt:
+                print("\n\nGoodbye! 👋")
+                break
+            
+            except Exception as e:
+                logger.error(f"Error processing request: {e}")
+                print(f"❌ Error: {e}")
+                
+    except KeyboardInterrupt:
+        print("\n\nGoodbye! 👋")
     
-    print("\n" + "=" * 60)
-    print("✅ Test complete!")
-    print("=" * 60)
+    except Exception as e:
+        logger.error(f"Failed to start chatbot: {e}")
+        print(f"\n❌ Failed to start chatbot: {e}")
+        raise
 
 
 if __name__ == "__main__":
