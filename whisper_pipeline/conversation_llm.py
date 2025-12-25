@@ -54,28 +54,23 @@ class ConversationLLM:
         # System prompt for RESPONSE GENERATION (Mode 1)
         if response_system_prompt is None:
             self.response_prompt = (
-                "You are a friendly, helpful voice assistant having a natural conversation.\n\n"
-                "CONVERSATIONAL STYLE:\n"
-                "- Talk naturally like a friend, not a formal assistant\n"
-                "- Keep responses ULTRA SHORT (1-2 sentences MAX) - this is voice, not text\n"
-                "- Use everyday language and contractions (I'm, you're, that's)\n"
-                "- Be warm and personable - respond to emotions naturally\n"
-                "- NEVER say 'as an AI' or 'as a language model' - just be helpful\n"
-                "- For longer explanations, stop after 1-2 sentences and let user ask follow-up\n\n"
-                "RESPONSE GUIDELINES:\n"
-                "- Answer directly without unnecessary context or caveats\n"
-                "- If asking a follow-up, make it conversational and brief\n"
-                "- Match the user's energy and tone\n"
-                "- For greetings, keep it simple and friendly\n"
-                "- For questions, give the key answer first, then optional details\n\n"
+                "You are a warm, knowledgeable, and conversational assistant.\n\n"
+                "GOALS:\n"
+                "- Provide clear, concise, and helpful answers (2-4 sentences).\n"
+                "- Match the user's language, tone and level of formality.\n"
+                "- Ask a single follow-up question when it helps clarify intent.\n"
+                "- Offer actionable suggestions or the next steps when relevant.\n\n"
+                "STYLE GUIDELINES (do NOT mention these to the user):\n"
+                "- Use natural contractions (I'm, you're, can't) and everyday phrasing.\n"
+                "- Avoid filler phrases like 'as an AI' or 'as a language model'.\n"
+                "- Prefer concrete, short examples when recommending solutions.\n"
+                "- Keep responses focused; don't provide unnecessary background.\n\n"
                 "EXAMPLES:\n"
-                "User: 'Hello!'\n"
-                "You: 'Hey! How can I help you today?'\n\n"
-                "User: 'I'm feeling stressed'\n"
-                "You: 'I hear you. Want to talk about what's on your mind?'\n\n"
-                "User: 'What's the weather?'\n"
-                "You: 'I can't check live weather, but you can try asking Siri or checking your weather app!'\n\n"
-                "Keep it natural, brief, and conversational."
+                "User: 'I'm stressed about exams.'\n"
+                "Assistant: 'I get that — exams can be overwhelming. Try 25-minute study sprints with short breaks; which subject is toughest for you?'\n\n"
+                "User: 'My code throws an error.'\n"
+                "Assistant: 'That’s frustrating. What error message do you see and which language are you using? I can help debug step-by-step.'\n\n"
+                "Respond helpfully and concisely in the user's language."
             )
         else:
             self.response_prompt = response_system_prompt
@@ -177,93 +172,6 @@ class ConversationLLM:
             logger.error("Make sure Ollama is running: ollama serve")
             logger.error(f"And model is available: ollama pull {self.llm_model}")
             raise
-    
-    def split_response_into_chunks(self, text: str, max_words: int = 15) -> List[str]:
-        """
-        Split long response into shorter chunks for faster audio generation.
-        
-        Args:
-            text: Full response text
-            max_words: Maximum words per chunk (default 15 = ~2-3 seconds audio)
-            
-        Returns:
-            List of text chunks
-        """
-        import re
-        
-        # Split by sentences first
-        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-        
-        chunks = []
-        current_chunk = ""
-        
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
-                
-            words_in_sentence = len(sentence.split())
-            words_in_chunk = len(current_chunk.split()) if current_chunk else 0
-            
-            # If adding this sentence would exceed max_words, save current chunk
-            if words_in_chunk > 0 and (words_in_chunk + words_in_sentence) > max_words:
-                chunks.append(current_chunk.strip())
-                current_chunk = sentence
-            else:
-                # Add sentence to current chunk
-                if current_chunk:
-                    current_chunk += " " + sentence
-                else:
-                    current_chunk = sentence
-        
-        # Add remaining chunk
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-        
-        return chunks if chunks else [text]
-    
-    def split_response_into_chunks(self, text: str, max_words: int = 15) -> list:
-        """
-        Split long response into shorter chunks for faster audio generation.
-        
-        Args:
-            text: Full response text
-            max_words: Maximum words per chunk (default 15 = ~2-3 seconds audio)
-            
-        Returns:
-            List of text chunks
-        """
-        # Split by sentences first
-        import re
-        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-        
-        chunks = []
-        current_chunk = ""
-        
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
-                
-            words_in_sentence = len(sentence.split())
-            words_in_chunk = len(current_chunk.split())
-            
-            # If adding this sentence would exceed max_words, save current chunk
-            if words_in_chunk > 0 and (words_in_chunk + words_in_sentence) > max_words:
-                chunks.append(current_chunk.strip())
-                current_chunk = sentence
-            else:
-                # Add sentence to current chunk
-                if current_chunk:
-                    current_chunk += " " + sentence
-                else:
-                    current_chunk = sentence
-        
-        # Add remaining chunk
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-        
-        return chunks if chunks else [text]
 
     def cleanup_text(self, whisper_text: str) -> str:
         """
