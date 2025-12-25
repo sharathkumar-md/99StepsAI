@@ -77,10 +77,10 @@ class StreamingConversationalChatbot:
         logger.info("Initializing Whisper ASR...")
         self.whisper_asr = StreamingWhisperASR(
             model_name="base.en",  # Fast and accurate enough
-            device=self.device,
-            compute_type="float16" if self.device == "cuda" else "int8"
+            device="cpu",  # Run on CPU to avoid cuDNN conflicts with CSM
+            compute_type="int8"  # CPU-optimized
         )
-        logger.info("✓ Whisper ready")
+        logger.info("✓ Whisper ready (CPU)")
         
         logger.info("=" * 60)
         
