@@ -38,6 +38,12 @@ logging.basicConfig(
         logging.FileHandler('streaming_chatbot.log')
     ]
 )
+# Reduce console verbosity - only warnings for these modules
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('faster_whisper').setLevel(logging.WARNING) 
+logging.getLogger('streaming_asr').setLevel(logging.WARNING)
+logging.getLogger('conversation_llm').setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 
@@ -195,6 +201,11 @@ class StreamingConversationalChatbot:
             chunk_csm_time = time.time() - csm_start
             total_csm_time += chunk_csm_time
             logger.info(f"✅ Audio for response chunk {chunk_idx} complete: {chunk_csm_time:.2f}s")
+            
+            # Small delay before next response chunk to simulate natural conversation timing
+            if chunk_idx < len(response_chunks):
+                import time as time_module
+                time_module.sleep(0.5)  # 500ms pause between message "bubbles"
         
         # Step 4: Wait for final Whisper transcription
         logger.info("⏳ Waiting for final transcription...")
@@ -238,7 +249,6 @@ def main():
         print("Commands:")
         print("  /quit  - Exit chatbot")
         print("  /reset - Reset conversation")
-        print("  /test  - Run quick test")
         print("=" * 60)
         print("")
         
@@ -260,54 +270,35 @@ def main():
                 print("✓ Conversation reset")
                 continue
             
-            if user_input == "/test":
-                user_input = "Hello! How are you today?"
-                print(f"👤 You: {user_input}")
-            
             # Process input with streaming
             print("")  # Blank line before response
             
             try:
                 audio_chunks = []
-                partial_texts = []
                 response_text = ""
                 
                 for event in chatbot.process_streaming(user_input):
                     if event['type'] == 'llm_response':
-                        # Print each response chunk immediately
-                        if event['chunk_num'] == 1:
-                            print(f"🤖 Bot: {event['text']}", end="", flush=True)
-                            response_text = event['text']
-                        else:
-                            print(f" {event['text']}", end="", flush=True)
-                            response_text += " " + event['text']
-                        
-                        # New line if it's the last chunk
-                        if event['chunk_num'] == event['total_chunks']:
-                            print("\n")
+                        # Print each response chunk as a separate message with timestamp
+                        from datetime import datetime
+                        timestamp = datetime.now().strftime("%I:%M %p").lower()
+                        print(f"\n🤖 Bot: {event['text']}")
+                        print(f"{timestamp}")
+                        response_text += " " + event['text']
                         
                     elif event['type'] == 'audio_chunk':
-                        # Collect audio chunks (for later playback in web app)
+                        # Collect audio chunks silently
                         audio_chunks.append(event['data'])
-                        logger.info(f"✅ Audio {event['chunk_num']} (response {event['response_chunk']}) at {event['elapsed_time']:.2f}s")
-                        
-                    elif event['type'] == 'partial_text':
-                        # Show partial transcription progress
-                        partial_texts.append(event['text'])
-                        logger.info(f"📝 Partial: '{event['text'][:50]}...'")
                         
                     elif event['type'] == 'final_text':
-                        # Show final transcription (verification)
-                        print(f"✓ Audio verified")
+                        # Show verification checkmark
+                        print("✓")
                         
                     elif event['type'] == 'complete':
-                        # Performance summary
+                        # Performance summary in logs only
                         logger.info(f"⏱️  Performance: Total {event['total_time']:.2f}s, "
                                   f"First audio {event['time_to_first_audio']:.2f}s, "
-                                  f"LLM {event['llm_time']:.2f}s, "
-                                  f"CSM {event['csm_time']:.2f}s, "
-                                  f"{event['response_chunks']} response chunks, "
-                                  f"{event['num_chunks']} audio chunks")
+                                  f"{event['response_chunks']} response chunks")
                 
             except KeyboardInterrupt:
                 print("\n\nGoodbye! 👋")
